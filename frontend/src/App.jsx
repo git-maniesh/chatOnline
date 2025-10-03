@@ -8,31 +8,48 @@ export default function App() {
     const [showNamePopup, setShowNamePopup] = useState(true);
     const [inputName, setInputName] = useState('');
     const [typers, setTypers] = useState([]);
-
     const [messages, setMessages] = useState([]);
     const [text, setText] = useState('');
 
+    // Connect to WebSocket and handle events
     useEffect(() => {
         socket.current = connectWS();
 
         socket.current.on('connect', () => {
+            // System message when a user joins
             socket.current.on('roomNotice', (userName) => {
-                console.log(`${userName} joined to group!`);
+                const systemMsg = {
+                    id: Date.now(),
+                    sender: 'System',
+                    text: `${userName} joined the chat`,
+                    ts: Date.now(),
+                    system: true,
+                };
+                setMessages((prev) => [...prev, systemMsg]);
             });
 
+            // System message when a user leaves
+            socket.current.on('roomLeave', (userName) => {
+                const systemMsg = {
+                    id: Date.now(),
+                    sender: 'System',
+                    text: `${userName} left the chat`,
+                    ts: Date.now(),
+                    system: true,
+                };
+                setMessages((prev) => [...prev, systemMsg]);
+            });
+
+            // Normal chat message
             socket.current.on('chatMessage', (msg) => {
-                // push to existing messages list
-                console.log('msg', msg);
                 setMessages((prev) => [...prev, msg]);
             });
 
+            // Typing indicator
             socket.current.on('typing', (userName) => {
                 setTypers((prev) => {
                     const isExist = prev.find((typer) => typer === userName);
-                    if (!isExist) {
-                        return [...prev, userName];
-                    }
-
+                    if (!isExist) return [...prev, userName];
                     return prev;
                 });
             });
@@ -44,12 +61,14 @@ export default function App() {
 
         return () => {
             socket.current.off('roomNotice');
+            socket.current.off('roomLeave');
             socket.current.off('chatMessage');
             socket.current.off('typing');
             socket.current.off('stopTyping');
         };
     }, []);
 
+    // Typing event logic
     useEffect(() => {
         if (text) {
             socket.current.emit('typing', userName);
@@ -65,7 +84,7 @@ export default function App() {
         };
     }, [text, userName]);
 
-    // FORMAT TIMESTAMP TO HH:MM FOR MESSAGES
+    // Format timestamp
     function formatTime(ts) {
         const d = new Date(ts);
         const hh = String(d.getHours()).padStart(2, '0');
@@ -73,25 +92,22 @@ export default function App() {
         return `${hh}:${mm}`;
     }
 
-    // SUBMIT NAME TO GET STARTED, OPEN CHAT WINDOW WITH INITIAL MESSAGE
+    // Submit username
     function handleNameSubmit(e) {
         e.preventDefault();
         const trimmed = inputName.trim();
         if (!trimmed) return;
 
-        // join room
         socket.current.emit('joinRoom', trimmed);
-
         setUserName(trimmed);
         setShowNamePopup(false);
     }
 
-    // SEND MESSAGE FUNCTION
+    // Send message
     function sendMessage() {
         const t = text.trim();
         if (!t) return;
 
-        // USER MESSAGE
         const msg = {
             id: Date.now(),
             sender: userName,
@@ -99,14 +115,11 @@ export default function App() {
             ts: Date.now(),
         };
         setMessages((m) => [...m, msg]);
-
-        // emit
         socket.current.emit('chatMessage', msg);
-
         setText('');
     }
 
-    // HANDLE ENTER KEY TO SEND MESSAGE
+    // Handle Enter key
     function handleKeyDown(e) {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
@@ -116,7 +129,7 @@ export default function App() {
 
     return (
         <div className="min-h-screen flex items-center justify-center bg-zinc-100 p-4 font-inter">
-            {/* ENTER YOUR NAME TO START CHATTING */}
+            {/* Name popup */}
             {showNamePopup && (
                 <div className="fixed inset-0 flex items-center justify-center z-40">
                     <div className="bg-white rounded-xl shadow-lg max-w-md p-6">
@@ -142,10 +155,10 @@ export default function App() {
                 </div>
             )}
 
-            {/* CHAT WINDOW */}
+            {/* Chat window */}
             {!showNamePopup && (
                 <div className="w-full max-w-2xl h-[90vh] bg-white rounded-xl shadow-md flex flex-col overflow-hidden">
-                    {/* CHAT HEADER */}
+                    {/* Header */}
                     <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200">
                         <div className="h-10 w-10 rounded-full bg-[#075E54] flex items-center justify-center text-white font-semibold">
                             M
@@ -154,14 +167,11 @@ export default function App() {
                             <div className="text-sm font-medium text-[#303030]">
                                 Baatchit
                             </div>
-
                             {typers.length ? (
                                 <div className="text-xs text-gray-500">
                                     {typers.join(', ')} is typing...
                                 </div>
-                            ) : (
-                                ''
-                            )}
+                            ) : null}
                         </div>
                         <div className="text-sm text-gray-500">
                             Signed in as{' '}
@@ -171,36 +181,41 @@ export default function App() {
                         </div>
                     </div>
 
-                    {/* CHAT MESSAGE LIST */}
+                    {/* Messages */}
                     <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-zinc-100 flex flex-col">
                         {messages.map((m) => {
                             const mine = m.sender === userName;
+                            const isSystem = m.system;
+
                             return (
                                 <div
                                     key={m.id}
-                                    className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
+                                    className={`flex ${mine && !isSystem ? 'justify-end' : 'justify-start'}`}>
                                     <div
                                         className={`max-w-[78%] p-3 my-2 rounded-[18px] text-sm leading-5 shadow-sm ${
-                                            mine
+                                            isSystem
+                                                ? 'bg-gray-200 text-gray-800 italic text-center'
+                                                : mine
                                                 ? 'bg-[#DCF8C6] text-[#303030] rounded-br-2xl'
                                                 : 'bg-white text-[#303030] rounded-bl-2xl'
-                                        }`}>
-                                        <div className="break-words whitespace-pre-wrap">
-                                            {m.text}
-                                        </div>
-                                        <div className="flex justify-between items-center mt-1 gap-16">
-                                            <div className="text-[11px] font-bold">{m.sender}</div>
-                                            <div className="text-[11px] text-gray-500 text-right">
-                                                {formatTime(m.ts)}
+                                        }`}
+                                    >
+                                        {m.text}
+                                        {!isSystem && (
+                                            <div className="flex justify-between items-center mt-1 gap-16">
+                                                <div className="text-[11px] font-bold">{m.sender}</div>
+                                                <div className="text-[11px] text-gray-500 text-right">
+                                                    {formatTime(m.ts)}
+                                                </div>
                                             </div>
-                                        </div>
+                                        )}
                                     </div>
                                 </div>
                             );
                         })}
                     </div>
 
-                    {/* CHAT TEXTAREA */}
+                    {/* Input */}
                     <div className="px-4 py-3 border-t border-gray-200 bg-white">
                         <div className="flex items-center justify-between gap-4 border border-gray-200 rounded-full">
                             <textarea
